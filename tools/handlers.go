@@ -135,3 +135,77 @@ func (h *Handlers) CreateBranch(ctx context.Context, req *mcp.CallToolRequest, i
 	}
 	return textResult(toJSON(branch)), nil, nil
 }
+
+// --- New handlers ---
+
+// ListIssues handles the list_issues tool.
+func (h *Handlers) ListIssues(ctx context.Context, req *mcp.CallToolRequest, input ListIssuesInput) (*mcp.CallToolResult, any, error) {
+	issues, total, err := h.Client.ListIssues(input.ProjectID, input.State, input.Page, input.PerPage)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing issues: %w", err)
+	}
+	return textResult(toJSON(map[string]any{"count": total, "items": issues})), nil, nil
+}
+
+// GetIssue handles the get_issue tool.
+func (h *Handlers) GetIssue(ctx context.Context, req *mcp.CallToolRequest, input GetIssueInput) (*mcp.CallToolResult, any, error) {
+	issue, err := h.Client.GetIssue(input.ProjectID, input.IssueIID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting issue: %w", err)
+	}
+	return textResult(toJSON(issue)), nil, nil
+}
+
+// ListMergeRequests handles the list_merge_requests tool.
+func (h *Handlers) ListMergeRequests(ctx context.Context, req *mcp.CallToolRequest, input ListMergeRequestsInput) (*mcp.CallToolResult, any, error) {
+	mrs, total, err := h.Client.ListMergeRequests(input.ProjectID, input.State, input.Page, input.PerPage)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing merge requests: %w", err)
+	}
+	return textResult(toJSON(map[string]any{"count": total, "items": mrs})), nil, nil
+}
+
+// GetMergeRequest handles the get_merge_request tool.
+func (h *Handlers) GetMergeRequest(ctx context.Context, req *mcp.CallToolRequest, input GetMergeRequestInput) (*mcp.CallToolResult, any, error) {
+	mr, err := h.Client.GetMergeRequest(input.ProjectID, input.MRIID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting merge request: %w", err)
+	}
+	return textResult(toJSON(mr)), nil, nil
+}
+
+// AddNote handles the add_note tool.
+func (h *Handlers) AddNote(ctx context.Context, req *mcp.CallToolRequest, input AddNoteInput) (*mcp.CallToolResult, any, error) {
+	// Map user-friendly type to GitLab API path segment
+	noteableType := input.NoteableType
+	switch noteableType {
+	case "issue":
+		noteableType = "issues"
+	case "merge_request":
+		noteableType = "merge_requests"
+	}
+
+	note, err := h.Client.AddNote(input.ProjectID, noteableType, input.NoteableIID, input.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("adding note: %w", err)
+	}
+	return textResult(toJSON(note)), nil, nil
+}
+
+// ListPipelines handles the list_pipelines tool.
+func (h *Handlers) ListPipelines(ctx context.Context, req *mcp.CallToolRequest, input ListPipelinesInput) (*mcp.CallToolResult, any, error) {
+	pipelines, total, err := h.Client.ListPipelines(input.ProjectID, input.Ref, input.Status, input.Page, input.PerPage)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing pipelines: %w", err)
+	}
+	return textResult(toJSON(map[string]any{"count": total, "items": pipelines})), nil, nil
+}
+
+// GetPipeline handles the get_pipeline tool.
+func (h *Handlers) GetPipeline(ctx context.Context, req *mcp.CallToolRequest, input GetPipelineInput) (*mcp.CallToolResult, any, error) {
+	pipeline, err := h.Client.GetPipeline(input.ProjectID, input.PipelineID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting pipeline: %w", err)
+	}
+	return textResult(toJSON(pipeline)), nil, nil
+}

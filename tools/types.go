@@ -84,3 +84,56 @@ type CreateBranchInput struct {
 	Branch    string `json:"branch" jsonschema:"Name for the new branch"`
 	Ref       string `json:"ref,omitempty" jsonschema:"Source ref to create from (default: default branch)"`
 }
+
+// --- New tool input types ---
+
+// ListIssuesInput is the input for the list_issues tool.
+type ListIssuesInput struct {
+	ProjectID string `json:"project_id" jsonschema:"GitLab project ID or URL-encoded path"`
+	State     string `json:"state,omitempty" jsonschema:"Filter by state: opened, closed, or all (default: all)"`
+	Page      int    `json:"page,omitempty" jsonschema:"Page number (default: 1)"`
+	PerPage   int    `json:"per_page,omitempty" jsonschema:"Results per page (default: 20)"`
+}
+
+// GetIssueInput is the input for the get_issue tool.
+type GetIssueInput struct {
+	ProjectID string `json:"project_id" jsonschema:"GitLab project ID or URL-encoded path"`
+	IssueIID  int    `json:"issue_iid" jsonschema:"Issue internal ID (IID) within the project"`
+}
+
+// ListMergeRequestsInput is the input for the list_merge_requests tool.
+type ListMergeRequestsInput struct {
+	ProjectID string `json:"project_id" jsonschema:"GitLab project ID or URL-encoded path"`
+	State     string `json:"state,omitempty" jsonschema:"Filter by state: opened, merged, closed, or all (default: all)"`
+	Page      int    `json:"page,omitempty" jsonschema:"Page number (default: 1)"`
+	PerPage   int    `json:"per_page,omitempty" jsonschema:"Results per page (default: 20)"`
+}
+
+// GetMergeRequestInput is the input for the get_merge_request tool.
+type GetMergeRequestInput struct {
+	ProjectID string `json:"project_id" jsonschema:"GitLab project ID or URL-encoded path"`
+	MRIID     int    `json:"mr_iid" jsonschema:"Merge request internal ID (IID) within the project"`
+}
+
+// AddNoteInput is the input for the add_note tool.
+type AddNoteInput struct {
+	ProjectID    string `json:"project_id" jsonschema:"GitLab project ID or URL-encoded path"`
+	NoteableType string `json:"noteable_type" jsonschema:"Type of object to comment on: issue or merge_request"`
+	NoteableIID  int    `json:"noteable_iid" jsonschema:"IID of the issue or merge request"`
+	Body         string `json:"body" jsonschema:"Comment body text (supports Markdown)"`
+}
+
+// ListPipelinesInput is the input for the list_pipelines tool.
+type ListPipelinesInput struct {
+	ProjectID string `json:"project_id" jsonschema:"GitLab project ID or URL-encoded path"`
+	Ref       string `json:"ref,omitempty" jsonschema:"Filter by branch or tag name"`
+	Status    string `json:"status,omitempty" jsonschema:"Filter by status: running, pending, success, failed, canceled, skipped, manual"`
+	Page      int    `json:"page,omitempty" jsonschema:"Page number (default: 1)"`
+	PerPage   int    `json:"per_page,omitempty" jsonschema:"Results per page (default: 20)"`
+}
+
+// GetPipelineInput is the input for the get_pipeline tool.
+type GetPipelineInput struct {
+	ProjectID  string `json:"project_id" jsonschema:"GitLab project ID or URL-encoded path"`
+	PipelineID int    `json:"pipeline_id" jsonschema:"Pipeline ID"`
+}

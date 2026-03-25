@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/azra-ai-oss/gitlab-mcp-server/gitlab"
@@ -10,17 +10,22 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
+	// Structured logging to stderr (MCP uses stdout for JSON-RPC)
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
 	token := os.Getenv("GITLAB_PERSONAL_ACCESS_TOKEN")
 	if token == "" {
-		fmt.Fprintln(os.Stderr, "Error: GITLAB_PERSONAL_ACCESS_TOKEN environment variable is not set")
+		logger.Error("GITLAB_PERSONAL_ACCESS_TOKEN environment variable is not set")
 		os.Exit(1)
 	}
 
 	apiURL := os.Getenv("GITLAB_API_URL")
-	client := gitlab.NewClient(apiURL, token)
+	client := gitlab.NewClient(apiURL, token, logger)
 	h := tools.NewHandlers(client)
 
 	server := mcp.NewServer(
@@ -28,7 +33,8 @@ func main() {
 		nil,
 	)
 
-	// Register all 9 tools
+	// --- Read-only tools only (defense-in-depth: no write operations) ---
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_repositories",
 		Description: "Search for GitLab projects",
@@ -40,44 +46,39 @@ func main() {
 	}, h.GetFileContents)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "create_or_update_file",
-		Description: "Create or update a single file in a GitLab project",
-	}, h.CreateOrUpdateFile)
+		Name:        "list_issues",
+		Description: "List issues in a GitLab project with optional state filtering",
+	}, h.ListIssues)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "push_files",
-		Description: "Push multiple files to a GitLab project in a single commit",
-	}, h.PushFiles)
+		Name:        "get_issue",
+		Description: "Get details of a specific issue by its IID",
+	}, h.GetIssue)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "create_repository",
-		Description: "Create a new GitLab project",
-	}, h.CreateRepository)
+		Name:        "list_merge_requests",
+		Description: "List merge requests in a GitLab project with optional state filtering",
+	}, h.ListMergeRequests)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "create_issue",
-		Description: "Create a new issue in a GitLab project",
-	}, h.CreateIssue)
+		Name:        "get_merge_request",
+		Description: "Get details of a specific merge request by its IID",
+	}, h.GetMergeRequest)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "create_merge_request",
-		Description: "Create a new merge request in a GitLab project",
-	}, h.CreateMergeRequest)
+		Name:        "list_pipelines",
+		Description: "List CI/CD pipelines in a GitLab project with optional filtering",
+	}, h.ListPipelines)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "fork_repository",
-		Description: "Fork a GitLab project to your account or specified namespace",
-	}, h.ForkRepository)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "create_branch",
-		Description: "Create a new branch in a GitLab project",
-	}, h.CreateBranch)
+		Name:        "get_pipeline",
+		Description: "Get details of a specific CI/CD pipeline",
+	}, h.GetPipeline)
 
 	// Run the server over stdio
-	fmt.Fprintln(os.Stderr, "GitLab MCP Server running on stdio")
+	logger.Info("GitLab MCP Server starting", "version", version, "tools", 8)
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
-		fmt.Fprintf(os.Stderr, "Fatal error: %v\n", err)
+		logger.Error("Fatal error", "error", err)
 		os.Exit(1)
 	}
 }

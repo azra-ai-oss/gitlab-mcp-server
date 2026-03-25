@@ -6,28 +6,39 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const defaultTimeout = 30 * time.Second
 
 // Client is a thin HTTP wrapper for GitLab API v4.
 type Client struct {
 	baseURL    string
 	token      string
 	httpClient *http.Client
+	logger     *slog.Logger
 }
 
-// NewClient creates a new GitLab API client.
-func NewClient(baseURL, token string) *Client {
+// NewClient creates a new GitLab API client with a 30s timeout.
+func NewClient(baseURL, token string, logger *slog.Logger) *Client {
 	if baseURL == "" {
 		baseURL = "https://gitlab.com/api/v4"
 	}
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Client{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		token:      token,
-		httpClient: &http.Client{},
+		baseURL: strings.TrimRight(baseURL, "/"),
+		token:   token,
+		httpClient: &http.Client{
+			Timeout: defaultTimeout,
+		},
+		logger: logger,
 	}
 }
 
@@ -80,11 +91,15 @@ type Commit struct {
 }
 
 type Issue struct {
-	ID          int     `json:"id"`
-	IID         int     `json:"iid"`
-	Title       string  `json:"title"`
-	Description *string `json:"description"`
-	WebURL      string  `json:"web_url,omitempty"`
+	ID          int      `json:"id"`
+	IID         int      `json:"iid"`
+	Title       string   `json:"title"`
+	Description *string  `json:"description"`
+	State       string   `json:"state,omitempty"`
+	Labels      []string `json:"labels,omitempty"`
+	WebURL      string   `json:"web_url,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
 }
 
 type MergeRequest struct {
@@ -92,9 +107,38 @@ type MergeRequest struct {
 	IID          int     `json:"iid"`
 	Title        string  `json:"title"`
 	Description  *string `json:"description"`
+	State        string  `json:"state,omitempty"`
 	SourceBranch string  `json:"source_branch"`
 	TargetBranch string  `json:"target_branch"`
 	WebURL       string  `json:"web_url,omitempty"`
+	MergeStatus  string  `json:"merge_status,omitempty"`
+	CreatedAt    string  `json:"created_at,omitempty"`
+	UpdatedAt    string  `json:"updated_at,omitempty"`
+}
+
+type Note struct {
+	ID        int    `json:"id"`
+	Body      string `json:"body"`
+	Author    Author `json:"author"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+type Author struct {
+	ID       int    `json:"id"`
+	Username string `json:"username"`
+	Name     string `json:"name"`
+}
+
+type Pipeline struct {
+	ID        int    `json:"id"`
+	IID       int    `json:"iid"`
+	Status    string `json:"status"`
+	Ref       string `json:"ref"`
+	SHA       string `json:"sha"`
+	WebURL    string `json:"web_url,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+	Source    string `json:"source,omitempty"`
 }
 
 type SearchResult struct {
@@ -102,7 +146,14 @@ type SearchResult struct {
 	Items []Project `json:"items"`
 }
 
-// --- API methods ---
+// CommitAction represents a single file action in a commit.
+type CommitAction struct {
+	Action   string `json:"action"`
+	FilePath string `json:"file_path"`
+	Content  string `json:"content"`
+}
+
+// --- Internal HTTP helpers ---
 
 func (c *Client) do(method, path string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequest(method, c.baseURL+path, body)
@@ -113,7 +164,17 @@ func (c *Client) do(method, path string, body io.Reader) (*http.Response, error)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	return c.httpClient.Do(req)
+
+	c.logger.Debug("GitLab API request", "method", method, "path", path)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.Error("GitLab API request failed", "method", method, "path", path, "error", err)
+		return nil, err
+	}
+
+	c.logger.Debug("GitLab API response", "method", method, "path", path, "status", resp.StatusCode)
+	return resp, nil
 }
 
 func (c *Client) doJSON(method, path string, body io.Reader, result any) error {
@@ -125,6 +186,7 @@ func (c *Client) doJSON(method, path string, body io.Reader, result any) error {
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
+		c.logger.Warn("GitLab API error", "status", resp.StatusCode, "body", string(respBody))
 		return fmt.Errorf("GitLab API error (%d): %s", resp.StatusCode, string(respBody))
 	}
 
@@ -134,9 +196,39 @@ func (c *Client) doJSON(method, path string, body io.Reader, result any) error {
 	return nil
 }
 
+func (c *Client) doJSONList(method, path string, result any) (int, error) {
+	resp, err := c.do(method, path, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("GitLab API error (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+		return 0, err
+	}
+
+	total := 0
+	if v := resp.Header.Get("X-Total"); v != "" {
+		total, _ = strconv.Atoi(v)
+	}
+	return total, nil
+}
+
 func encodeProjectID(projectID string) string {
 	return url.PathEscape(projectID)
 }
+
+func jsonBody(v any) *strings.Reader {
+	b, _ := json.Marshal(v)
+	return strings.NewReader(string(b))
+}
+
+// --- Original 9 API methods ---
 
 // GetDefaultBranch returns the default branch of a project.
 func (c *Client) GetDefaultBranch(projectID string) (string, error) {
@@ -162,27 +254,11 @@ func (c *Client) SearchProjects(query string, page, perPage int) (*SearchResult,
 	params.Set("page", strconv.Itoa(page))
 	params.Set("per_page", strconv.Itoa(perPage))
 
-	resp, err := c.do("GET", "/projects?"+params.Encode(), nil)
+	var projects []Project
+	total, err := c.doJSONList("GET", "/projects?"+params.Encode(), &projects)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GitLab API error (%d): %s", resp.StatusCode, string(respBody))
-	}
-
-	var projects []Project
-	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
-		return nil, err
-	}
-
-	total := 0
-	if v := resp.Header.Get("X-Total"); v != "" {
-		total, _ = strconv.Atoi(v)
-	}
-
 	return &SearchResult{Count: total, Items: projects}, nil
 }
 
@@ -224,11 +300,6 @@ func (c *Client) CreateOrUpdateFile(projectID, filePath, content, commitMessage,
 		body["previous_path"] = previousPath
 	}
 
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-
 	// Check if file exists to decide POST vs PUT
 	method := "POST"
 	_, getErr := c.GetFileContents(projectID, filePath, branch)
@@ -237,36 +308,22 @@ func (c *Client) CreateOrUpdateFile(projectID, filePath, content, commitMessage,
 	}
 
 	var result FileResponse
-	if err := c.doJSON(method, apiPath, strings.NewReader(string(jsonBody)), &result); err != nil {
+	if err := c.doJSON(method, apiPath, jsonBody(body), &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
-}
-
-// CommitAction represents a single file action in a commit.
-type CommitAction struct {
-	Action   string `json:"action"`
-	FilePath string `json:"file_path"`
-	Content  string `json:"content"`
 }
 
 // CreateCommit pushes multiple files in a single commit.
 func (c *Client) CreateCommit(projectID, message, branch string, files []CommitAction) (*Commit, error) {
 	path := fmt.Sprintf("/projects/%s/repository/commits", encodeProjectID(projectID))
 
-	body := map[string]any{
+	var commit Commit
+	if err := c.doJSON("POST", path, jsonBody(map[string]any{
 		"branch":         branch,
 		"commit_message": message,
 		"actions":        files,
-	}
-
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-
-	var commit Commit
-	if err := c.doJSON("POST", path, strings.NewReader(string(jsonBody)), &commit); err != nil {
+	}), &commit); err != nil {
 		return nil, err
 	}
 	return &commit, nil
@@ -274,9 +331,7 @@ func (c *Client) CreateCommit(projectID, message, branch string, files []CommitA
 
 // CreateProject creates a new GitLab project.
 func (c *Client) CreateProject(name, description, visibility string, initReadme bool) (*Project, error) {
-	body := map[string]any{
-		"name": name,
-	}
+	body := map[string]any{"name": name}
 	if description != "" {
 		body["description"] = description
 	}
@@ -287,13 +342,8 @@ func (c *Client) CreateProject(name, description, visibility string, initReadme 
 		body["initialize_with_readme"] = true
 	}
 
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-
 	var project Project
-	if err := c.doJSON("POST", "/projects", strings.NewReader(string(jsonBody)), &project); err != nil {
+	if err := c.doJSON("POST", "/projects", jsonBody(body), &project); err != nil {
 		return nil, err
 	}
 	return &project, nil
@@ -303,9 +353,7 @@ func (c *Client) CreateProject(name, description, visibility string, initReadme 
 func (c *Client) CreateIssue(projectID, title, description string, assigneeIDs []int, milestoneID int, labels []string) (*Issue, error) {
 	path := fmt.Sprintf("/projects/%s/issues", encodeProjectID(projectID))
 
-	body := map[string]any{
-		"title": title,
-	}
+	body := map[string]any{"title": title}
 	if description != "" {
 		body["description"] = description
 	}
@@ -319,13 +367,8 @@ func (c *Client) CreateIssue(projectID, title, description string, assigneeIDs [
 		body["labels"] = strings.Join(labels, ",")
 	}
 
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-
 	var issue Issue
-	if err := c.doJSON("POST", path, strings.NewReader(string(jsonBody)), &issue); err != nil {
+	if err := c.doJSON("POST", path, jsonBody(body), &issue); err != nil {
 		return nil, err
 	}
 	return &issue, nil
@@ -350,13 +393,8 @@ func (c *Client) CreateMergeRequest(projectID, title, description, sourceBranch,
 		body["allow_collaboration"] = true
 	}
 
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-
 	var mr MergeRequest
-	if err := c.doJSON("POST", path, strings.NewReader(string(jsonBody)), &mr); err != nil {
+	if err := c.doJSON("POST", path, jsonBody(body), &mr); err != nil {
 		return nil, err
 	}
 	return &mr, nil
@@ -380,19 +418,133 @@ func (c *Client) ForkProject(projectID, namespace string) (*Project, error) {
 func (c *Client) CreateBranch(projectID, branchName, ref string) (*Branch, error) {
 	path := fmt.Sprintf("/projects/%s/repository/branches", encodeProjectID(projectID))
 
-	body := map[string]string{
+	var branch Branch
+	if err := c.doJSON("POST", path, jsonBody(map[string]string{
 		"branch": branchName,
 		"ref":    ref,
-	}
-
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-
-	var branch Branch
-	if err := c.doJSON("POST", path, strings.NewReader(string(jsonBody)), &branch); err != nil {
+	}), &branch); err != nil {
 		return nil, err
 	}
 	return &branch, nil
+}
+
+// --- New API methods ---
+
+// ListIssues lists issues for a project with optional filtering.
+func (c *Client) ListIssues(projectID, state string, page, perPage int) ([]Issue, int, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 20
+	}
+
+	params := url.Values{}
+	params.Set("page", strconv.Itoa(page))
+	params.Set("per_page", strconv.Itoa(perPage))
+	if state != "" {
+		params.Set("state", state)
+	}
+
+	path := fmt.Sprintf("/projects/%s/issues?%s", encodeProjectID(projectID), params.Encode())
+	var issues []Issue
+	total, err := c.doJSONList("GET", path, &issues)
+	if err != nil {
+		return nil, 0, err
+	}
+	return issues, total, nil
+}
+
+// GetIssue retrieves a single issue by IID.
+func (c *Client) GetIssue(projectID string, issueIID int) (*Issue, error) {
+	path := fmt.Sprintf("/projects/%s/issues/%d", encodeProjectID(projectID), issueIID)
+	var issue Issue
+	if err := c.doJSON("GET", path, nil, &issue); err != nil {
+		return nil, err
+	}
+	return &issue, nil
+}
+
+// ListMergeRequests lists merge requests for a project with optional filtering.
+func (c *Client) ListMergeRequests(projectID, state string, page, perPage int) ([]MergeRequest, int, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 20
+	}
+
+	params := url.Values{}
+	params.Set("page", strconv.Itoa(page))
+	params.Set("per_page", strconv.Itoa(perPage))
+	if state != "" {
+		params.Set("state", state)
+	}
+
+	path := fmt.Sprintf("/projects/%s/merge_requests?%s", encodeProjectID(projectID), params.Encode())
+	var mrs []MergeRequest
+	total, err := c.doJSONList("GET", path, &mrs)
+	if err != nil {
+		return nil, 0, err
+	}
+	return mrs, total, nil
+}
+
+// GetMergeRequest retrieves a single merge request by IID.
+func (c *Client) GetMergeRequest(projectID string, mrIID int) (*MergeRequest, error) {
+	path := fmt.Sprintf("/projects/%s/merge_requests/%d", encodeProjectID(projectID), mrIID)
+	var mr MergeRequest
+	if err := c.doJSON("GET", path, nil, &mr); err != nil {
+		return nil, err
+	}
+	return &mr, nil
+}
+
+// AddNote adds a comment to an issue or merge request.
+// noteableType should be "issues" or "merge_requests".
+func (c *Client) AddNote(projectID, noteableType string, noteableIID int, body string) (*Note, error) {
+	path := fmt.Sprintf("/projects/%s/%s/%d/notes", encodeProjectID(projectID), noteableType, noteableIID)
+	var note Note
+	if err := c.doJSON("POST", path, jsonBody(map[string]string{"body": body}), &note); err != nil {
+		return nil, err
+	}
+	return &note, nil
+}
+
+// ListPipelines lists pipelines for a project.
+func (c *Client) ListPipelines(projectID, ref, status string, page, perPage int) ([]Pipeline, int, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 20
+	}
+
+	params := url.Values{}
+	params.Set("page", strconv.Itoa(page))
+	params.Set("per_page", strconv.Itoa(perPage))
+	if ref != "" {
+		params.Set("ref", ref)
+	}
+	if status != "" {
+		params.Set("status", status)
+	}
+
+	path := fmt.Sprintf("/projects/%s/pipelines?%s", encodeProjectID(projectID), params.Encode())
+	var pipelines []Pipeline
+	total, err := c.doJSONList("GET", path, &pipelines)
+	if err != nil {
+		return nil, 0, err
+	}
+	return pipelines, total, nil
+}
+
+// GetPipeline retrieves a single pipeline by ID.
+func (c *Client) GetPipeline(projectID string, pipelineID int) (*Pipeline, error) {
+	path := fmt.Sprintf("/projects/%s/pipelines/%d", encodeProjectID(projectID), pipelineID)
+	var pipeline Pipeline
+	if err := c.doJSON("GET", path, nil, &pipeline); err != nil {
+		return nil, err
+	}
+	return &pipeline, nil
 }
