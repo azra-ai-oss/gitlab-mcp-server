@@ -27,7 +27,7 @@ func TestSearchProjects(t *testing.T) {
 			t.Errorf("unexpected auth header: %s", r.Header.Get("Authorization"))
 		}
 		w.Header().Set("X-Total", "1")
-		json.NewEncoder(w).Encode([]Project{
+		_ = json.NewEncoder(w).Encode([]Project{
 			{ID: 1, Name: "myproject", DefaultBranch: "main"},
 		})
 	})
@@ -54,7 +54,7 @@ func TestGetFileContents(t *testing.T) {
 	content := base64.StdEncoding.EncodeToString([]byte("Hello, World!"))
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(FileContent{
+		_ = json.NewEncoder(w).Encode(FileContent{
 			FileName: "README.md",
 			FilePath: "README.md",
 			Size:     13,
@@ -77,7 +77,7 @@ func TestGetFileContents(t *testing.T) {
 
 func TestGetDefaultBranch(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(Project{
+		_ = json.NewEncoder(w).Encode(Project{
 			ID:            42,
 			Name:          "test",
 			DefaultBranch: "develop",
@@ -103,12 +103,12 @@ func TestCreateIssue(t *testing.T) {
 		}
 
 		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
+		_ = json.NewDecoder(r.Body).Decode(&body)
 		if body["title"] != "Bug report" {
 			t.Errorf("expected title 'Bug report', got '%v'", body["title"])
 		}
 
-		json.NewEncoder(w).Encode(Issue{
+		_ = json.NewEncoder(w).Encode(Issue{
 			ID:    1,
 			IID:   1,
 			Title: "Bug report",
@@ -133,7 +133,7 @@ func TestListIssues(t *testing.T) {
 			t.Errorf("expected state=opened, got %s", r.URL.Query().Get("state"))
 		}
 		w.Header().Set("X-Total", "2")
-		json.NewEncoder(w).Encode([]Issue{
+		_ = json.NewEncoder(w).Encode([]Issue{
 			{ID: 1, IID: 1, Title: "First"},
 			{ID: 2, IID: 2, Title: "Second"},
 		})
@@ -156,7 +156,7 @@ func TestListIssues(t *testing.T) {
 
 func TestGetMergeRequest(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(MergeRequest{
+		_ = json.NewEncoder(w).Encode(MergeRequest{
 			ID:           10,
 			IID:          5,
 			Title:        "Add feature",
@@ -183,7 +183,7 @@ func TestGetMergeRequest(t *testing.T) {
 func TestListPipelines(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Total", "1")
-		json.NewEncoder(w).Encode([]Pipeline{
+		_ = json.NewEncoder(w).Encode([]Pipeline{
 			{ID: 100, Status: "success", Ref: "main"},
 		})
 	})
@@ -206,7 +206,7 @@ func TestListPipelines(t *testing.T) {
 func TestAPIError(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte(`{"message": "404 Project Not Found"}`))
+		_, _ = w.Write([]byte(`{"message": "404 Project Not Found"}`))
 	})
 
 	client, ts := newTestClient(handler)
@@ -225,12 +225,12 @@ func TestAddNote(t *testing.T) {
 		}
 
 		var body map[string]string
-		json.NewDecoder(r.Body).Decode(&body)
+		_ = json.NewDecoder(r.Body).Decode(&body)
 		if body["body"] != "LGTM!" {
 			t.Errorf("expected body 'LGTM!', got '%v'", body["body"])
 		}
 
-		json.NewEncoder(w).Encode(Note{
+		_ = json.NewEncoder(w).Encode(Note{
 			ID:   1,
 			Body: "LGTM!",
 			Author: Author{
