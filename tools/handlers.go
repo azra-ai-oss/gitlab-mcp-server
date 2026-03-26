@@ -177,15 +177,15 @@ func (h *Handlers) GetMergeRequest(ctx context.Context, req *mcp.CallToolRequest
 // AddNote handles the add_note tool.
 func (h *Handlers) AddNote(ctx context.Context, req *mcp.CallToolRequest, input AddNoteInput) (*mcp.CallToolResult, any, error) {
 	// Map user-friendly type to GitLab API path segment
-	noteableType := input.NoteableType
-	switch noteableType {
+	notableType := input.NotableType
+	switch notableType {
 	case "issue":
-		noteableType = "issues"
+		notableType = "issues"
 	case "merge_request":
-		noteableType = "merge_requests"
+		notableType = "merge_requests"
 	}
 
-	note, err := h.Client.AddNote(input.ProjectID, noteableType, input.NoteableIID, input.Body)
+	note, err := h.Client.AddNote(input.ProjectID, notableType, input.NotableIID, input.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("adding note: %w", err)
 	}

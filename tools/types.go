@@ -117,10 +117,10 @@ type GetMergeRequestInput struct {
 
 // AddNoteInput is the input for the add_note tool.
 type AddNoteInput struct {
-	ProjectID    string `json:"project_id" jsonschema:"GitLab project ID or URL-encoded path"`
-	NoteableType string `json:"noteable_type" jsonschema:"Type of object to comment on: issue or merge_request"`
-	NoteableIID  int    `json:"noteable_iid" jsonschema:"IID of the issue or merge request"`
-	Body         string `json:"body" jsonschema:"Comment body text (supports Markdown)"`
+	ProjectID   string `json:"project_id" jsonschema:"GitLab project ID or URL-encoded path"`
+	NotableType string `json:"notable_type" jsonschema:"Type of object to comment on: issue or merge_request"`
+	NotableIID  int    `json:"notable_iid" jsonschema:"IID of the issue or merge request"`
+	Body        string `json:"body" jsonschema:"Comment body text (supports Markdown)"`
 }
 
 // ListPipelinesInput is the input for the list_pipelines tool.
