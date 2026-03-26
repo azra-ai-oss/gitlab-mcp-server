@@ -3,6 +3,11 @@ version: "2"
 run:
   timeout: 5m
 
+linters-settings:
+  misspell:
+    ignore-words:
+      - noteable  # GitLab API uses this spelling
+
 linters:
   enable:
     - errcheck
