@@ -12,10 +12,13 @@ linters:
     - gosimple
     - ineffassign
     - gocritic
-    - gofmt
-    - goimports
     - misspell
     - nolintlint
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
 
 issues:
   max-issues-per-linter: 50
